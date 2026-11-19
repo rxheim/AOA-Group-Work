@@ -7,6 +7,7 @@ Requires Python 3 with tkinter (included with most desktop Python installs).
 """
 
 from functools import lru_cache
+from random import randint
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -75,6 +76,7 @@ class MoldyChocolateApp:
         root.title("Moldy Chocolate | Human vs Computer")
 
         root.minsize(700, 590)
+        root.maxsize(root.winfo_screenwidth(), root.winfo_screenheight())
         root.configure(bg="#f5f1e9")
 
         # Set shared fonts and colors used by the interface.
@@ -103,8 +105,12 @@ class MoldyChocolateApp:
             ttk.Label(setup, text=label).grid(row=0, column=col * 2, padx=(4, 3))
             ttk.Spinbox(setup, from_=1, to=12, width=4, textvariable=var).grid(
                 row=0, column=col * 2 + 1, padx=(0, 10))
+
+        ttk.Button(setup, text="Random Mold Spot", command=self.random_mold_pos).grid(
+                    row=0, column=8, padx=6)
+            
         ttk.Button(setup, text="Start game", command=self.start_game).grid(
-            row=0, column=8, padx=6)
+            row=0, column=9, padx=6)
 
         # The status line, board drawing, move buttons, and game history.
         self.status_var = tk.StringVar(value="Choose a board and start a game.")
@@ -117,7 +123,8 @@ class MoldyChocolateApp:
         moves_frame = ttk.LabelFrame(root, text="Your legal cuts", padding=8)
         moves_frame.pack(fill="x", padx=18, pady=5)
         self.moves_box = ttk.Frame(moves_frame)
-        self.moves_box.pack(fill="x")
+        self.moves_box.pack(fill="x", expand=True)
+        self.moves_box.bind("<Configure>", self.wrap_moves)
 
         history_frame = ttk.LabelFrame(root, text="Game progress", padding=8)
         history_frame.pack(fill="both", expand=True, padx=18, pady=(4, 14))
@@ -147,7 +154,9 @@ class MoldyChocolateApp:
                                  f"Mold row must be 1–{rows} and mold column 1–{cols}.")
             return
 
+
         # Save board dimensions. Convert mold coordinates to zero-based indexes.
+        # TODO: Make the mold be in a random spot
         self.rows, self.cols = rows, cols
         self.mold_row, self.mold_col = mold_row - 1, mold_col - 1
         self.turn = "human"
@@ -161,7 +170,7 @@ class MoldyChocolateApp:
         if rows == 1 and cols == 1:
             self.finish_game("human")
 # Board 
-    def draw_board(self):
+    def draw_board(self, btn_preview=None):
         # Clear the old picture, then choose a cell size that fits the board.
         self.board.delete("all")
         cell = min(self.CELL, 480 // max(1, self.cols), 280 // max(1, self.rows))
@@ -183,6 +192,51 @@ class MoldyChocolateApp:
         self.board.create_text(left - 12, top - 8, text="Rows and columns are numbered from 1",
                                anchor="sw", fill="#66564d", font=("Helvetica", 9))
 
+        if btn_preview:
+            direction, cut_index = btn_preview
+
+            if direction == "Horizontal":
+                y_pos = top+ cut_index * cell
+                self.board.create_line(
+                    left,y_pos, left + self.cols * cell, y_pos,
+                    fill="#e53935",
+                    width=4
+                )
+            else:
+                x_pos = left + cut_index * cell
+                self.board.create_line(
+                    x_pos, top, x_pos,top + self.rows * cell,
+                    fill="#e53935",
+                    width=4
+                )
+
+    def random_mold_pos(self):
+        random_x_pos = randint(1, self.rows_var.get())
+        random_y_pos = randint(1, self.cols_var.get())
+        self.mold_row_var.set(random_x_pos)
+        self.mold_col_var.set(random_y_pos)
+        self.start_game()
+
+    def wrap_moves(self, e=None):
+        btns = self.moves_box.winfo_children()
+        if  not btns:
+            return
+        width = self.moves_box.winfo_width()
+        row = col = 0
+        used_width = 0
+        for btn  in btns:
+            btn_width = btn.winfo_width() + 8
+            if used_width+btn_width > width:
+                row+=1
+                col = 0
+                used_width = 0
+            btn.grid(row=row,column=col)
+
+            used_width += btn_width;
+            col+=1
+            
+            
+
     # -------------------- TURN AND MOVE HANDLING --------------------
     def show_moves(self):
         # Rebuild buttons so they match the current board.
@@ -192,9 +246,26 @@ class MoldyChocolateApp:
             return
         for label, nr, nc, mr, mc in legal_moves(self.rows, self.cols,
                                                   self.mold_row, self.mold_col):
-            ttk.Button(self.moves_box, text=label, style="Move.TButton",
-                       command=lambda x=(label, nr, nc, mr, mc): self.make_move(*x)).pack(
-                           side="left", padx=4, pady=3)
+            btn = ttk.Button(
+                self.moves_box, 
+                text=label, 
+                style="Move.TButton",
+                command=lambda x=(label, nr, nc, mr, mc): self.make_move(*x)
+            )
+
+            label_unpack = label.split()
+            direction = label_unpack[0]
+            cut_index = int(label_unpack[-1])
+
+            btn.bind("<Enter>", 
+                     lambda _, d=direction,c=cut_index: self.draw_board((d,c)) 
+            )
+            btn.bind("<Leave>", lambda _:self.draw_board())
+            
+            # btn.pack(side="left", padx=4, pady=3)
+            self.wrap_moves()
+    
+            
 
     def make_move(self, label, rows, cols, mold_row, mold_col, player="human"):
         # Ignore a click if the game has already ended.
